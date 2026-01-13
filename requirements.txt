@@ -1,1 +1,8 @@
-
+gradio>=4.44.0
+opencv-python-headless>=4.10.0
+fastrtc>=0.0.5          # needed for low-latency webcam streaming in Gradio
+onnxruntime>=1.19.0     # or latest stable version
+huggingface-hub>=0.25.0
+numpy>=1.26.0
+requests>=2.32.0
+pillow>=10.0.0          # sometimes helpful with URL loading / image handling
