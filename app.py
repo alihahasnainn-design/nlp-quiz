@@ -4,6 +4,8 @@ from PIL import Image
 import requests
 from io import BytesIO
 import torch
+from streamlit_webrtc import webrtc_streamer, RTCConfiguration
+import av
 
 # ──────────────────────────────────────────────────────────────
 # Cache the model & processor (very important for Streamlit Cloud)
@@ -40,6 +42,15 @@ def generate_caption(image, processor, model, device, conditional_text=""):
 
 
 # ──────────────────────────────────────────────────────────────
+# Video Processor for capturing frames
+# ──────────────────────────────────────────────────────────────
+class VideoProcessor:
+    def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
+        st.session_state['latest_frame'] = frame
+        return frame
+
+
+# ──────────────────────────────────────────────────────────────
 # Streamlit App UI
 # ──────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -49,13 +60,13 @@ st.set_page_config(
 )
 
 st.title("🖼️ Image Caption Generator")
-st.markdown("Upload an image or paste a URL — get an automatic caption using **BLIP** (Salesforce) model from Hugging Face!")
+st.markdown("Upload an image, paste a URL, or use real-time webcam — get an automatic caption using **BLIP** (Salesforce) model from Hugging Face!")
 
 # Load model once
 processor, model, device = load_model()
 
 # Tabs for different input methods
-tab1, tab2 = st.tabs(["📤 Upload Image", "🌐 Image URL"])
+tab1, tab2, tab3 = st.tabs(["📤 Upload Image", "🌐 Image URL", "📹 Real-Time Webcam"])
 
 with tab1:
     uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
@@ -64,9 +75,11 @@ with tab1:
         image = Image.open(uploaded_file).convert("RGB")
         st.image(image, caption="Uploaded Image", use_column_width=True)
         
-        if st.button("✨ Generate Caption", type="primary"):
+        conditional_text = st.text_input("Optional prompt (e.g., 'a photo of')", key="upload_prompt")
+        
+        if st.button("✨ Generate Caption", type="primary", key="upload_btn"):
             with st.spinner("Generating caption..."):
-                caption = generate_caption(image, processor, model, device)
+                caption = generate_caption(image, processor, model, device, conditional_text)
                 st.success("**Caption:** " + caption)
 
 with tab2:
@@ -78,12 +91,42 @@ with tab2:
             image = Image.open(BytesIO(response.content)).convert("RGB")
             st.image(image, caption="Image from URL", use_column_width=True)
             
-            if st.button("✨ Generate Caption", type="primary"):
+            conditional_text = st.text_input("Optional prompt (e.g., 'a photo of')", key="url_prompt")
+            
+            if st.button("✨ Generate Caption", type="primary", key="url_btn"):
                 with st.spinner("Generating caption..."):
-                    caption = generate_caption(image, processor, model, device)
+                    caption = generate_caption(image, processor, model, device, conditional_text)
                     st.success("**Caption:** " + caption)
         except Exception as e:
             st.error(f"Could not load image from URL. Error: {str(e)}")
+
+with tab3:
+    st.header("Real-Time Webcam Captioning")
+    st.markdown("Start your webcam below, then click 'Generate Caption' to caption the current frame.")
+    
+    if 'latest_frame' not in st.session_state:
+        st.session_state['latest_frame'] = None
+    
+    webrtc_streamer(
+        key="webcam",
+        mode="sendrecv",
+        rtc_configuration=RTCConfiguration({"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}),
+        media_stream_constraints={"video": True, "audio": False},
+        video_processor_factory=VideoProcessor,
+    )
+    
+    conditional_text = st.text_input("Optional prompt (e.g., 'a photo of')", key="webcam_prompt")
+    
+    if st.button("✨ Generate Caption", type="primary", key="webcam_btn"):
+        if 'latest_frame' in st.session_state and st.session_state['latest_frame'] is not None:
+            with st.spinner("Generating caption..."):
+                frame = st.session_state['latest_frame']
+                img_array = frame.to_ndarray(format="rgb24")
+                image = Image.fromarray(img_array).convert("RGB")
+                caption = generate_caption(image, processor, model, device, conditional_text)
+                st.success("**Caption:** " + caption)
+        else:
+            st.error("No frame available. Ensure your webcam is running and allowed.")
 
 # Footer / info
 st.markdown("---")
